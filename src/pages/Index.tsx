@@ -8,6 +8,7 @@ import { InputDisplay, FallbackInput } from "@/components/blinkvoice/InputDispla
 import { QuickPhrases, Predictions } from "@/components/blinkvoice/QuickPhrases";
 import { Transcript, TranscriptEntry } from "@/components/blinkvoice/Transcript";
 import { EmergencyOverlay } from "@/components/blinkvoice/EmergencyOverlay";
+import { MorseChart } from "@/components/blinkvoice/MorseChart";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
