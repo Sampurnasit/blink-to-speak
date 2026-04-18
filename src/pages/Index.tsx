@@ -8,7 +8,7 @@ import { InputDisplay, FallbackInput } from "@/components/blinkvoice/InputDispla
 import { QuickPhrases, Predictions } from "@/components/blinkvoice/QuickPhrases";
 import { Transcript, TranscriptEntry } from "@/components/blinkvoice/Transcript";
 import { EmergencyOverlay } from "@/components/blinkvoice/EmergencyOverlay";
-import { MorseChart } from "@/components/blinkvoice/MorseChart";
+import { MorseChart, MorseChartCard } from "@/components/blinkvoice/MorseChart";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
@@ -231,32 +231,38 @@ const Index = () => {
             />
           )}
 
-          {/* HUGE message display — the only thing patient really needs to see */}
-          <div
-            className={cn(
-              "rounded-3xl border-2 border-border/60 bg-card/70 backdrop-blur p-8 sm:p-12 min-h-[40vh] flex flex-col items-center justify-center text-center transition-all",
-              blinkFlash && "blink-flash border-primary"
-            )}
-          >
-            {morse && (
-              <div className="flex gap-3 mb-6">
-                {morse.split("").map((s, i) => (
-                  <span
-                    key={i}
-                    className="morse-symbol text-6xl sm:text-7xl font-black text-primary"
-                  >
-                    {s === "." ? "•" : "—"}
-                  </span>
-                ))}
-              </div>
-            )}
-            <p className="text-5xl sm:text-7xl font-black text-display leading-tight break-words">
-              {text || (
-                <span className="text-muted-foreground/50 italic font-normal text-3xl">
-                  Blink to speak…
-                </span>
+          {/* Message display + inline morse chart */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div
+              className={cn(
+                "md:col-span-2 rounded-3xl border-2 border-border/60 bg-card/70 backdrop-blur p-6 sm:p-10 min-h-[40vh] flex flex-col items-center justify-center text-center transition-all",
+                blinkFlash && "blink-flash border-primary"
               )}
-            </p>
+            >
+              {morse && (
+                <div className="flex gap-3 mb-6">
+                  {morse.split("").map((s, i) => (
+                    <span
+                      key={i}
+                      className="morse-symbol text-6xl sm:text-7xl font-black text-primary"
+                    >
+                      {s === "." ? "•" : "—"}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <p className="text-4xl sm:text-6xl font-black text-display leading-tight break-words">
+                {text || (
+                  <span className="text-muted-foreground/50 italic font-normal text-2xl sm:text-3xl">
+                    Blink to speak…
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <div className="md:col-span-1 min-h-[40vh]">
+              <MorseChartCard currentMorse={morse} />
+            </div>
           </div>
 
           {/* Big quick phrases — zero-effort emergencies */}
