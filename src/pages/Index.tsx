@@ -357,7 +357,17 @@ const Index = () => {
 
         <div className="grid lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 space-y-4">
-            <InputDisplay morse={morse} text={text} blinkFlash={blinkFlash} />
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="md:col-span-2">
+                <InputDisplay morse={morse} text={text} blinkFlash={blinkFlash} />
+              </div>
+              <div className="md:col-span-1">
+                <MorseChartCard
+                  currentMorse={morse}
+                  onPickLetter={(l) => setText((t) => t + l)}
+                />
+              </div>
+            </div>
 
             <FallbackInput
               onDot={() => addSymbol(".")}
