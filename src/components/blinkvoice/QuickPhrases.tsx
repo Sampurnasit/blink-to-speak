@@ -12,25 +12,30 @@ const PHRASES = [
 
 interface QuickPhrasesProps {
   onSpeak: (text: string) => void;
+  large?: boolean;
 }
 
-export const QuickPhrases = ({ onSpeak }: QuickPhrasesProps) => {
+export const QuickPhrases = ({ onSpeak, large }: QuickPhrasesProps) => {
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
-        <AlertTriangle className="w-4 h-4 text-destructive" />
-        <h2 className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">
-          Quick phrases — tap to speak
-        </h2>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      {!large && (
+        <div className="flex items-center gap-2 mb-3">
+          <AlertTriangle className="w-4 h-4 text-destructive" />
+          <h2 className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">
+            Quick phrases — tap to speak
+          </h2>
+        </div>
+      )}
+      <div className={`grid gap-3 ${large ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-2 sm:grid-cols-3"}`}>
         {PHRASES.map((p) => (
           <Button
             key={p.text}
             onClick={() => onSpeak(p.text)}
-            className="h-20 sm:h-24 text-base sm:text-lg font-bold gradient-emergency text-destructive-foreground hover:opacity-90 hover:scale-[1.02] transition-all shadow-lg flex flex-col gap-1"
+            className={`${
+              large ? "h-28 sm:h-32 text-2xl sm:text-3xl" : "h-20 sm:h-24 text-base sm:text-lg"
+            } font-bold gradient-emergency text-destructive-foreground hover:opacity-90 hover:scale-[1.02] transition-all shadow-lg flex flex-col gap-1`}
           >
-            <span className="text-2xl">{p.emoji}</span>
+            <span className={large ? "text-4xl" : "text-2xl"}>{p.emoji}</span>
             <span>{p.text}</span>
           </Button>
         ))}
