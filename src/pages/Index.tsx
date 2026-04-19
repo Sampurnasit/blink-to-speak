@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useBlinkDetector, BlinkEvent } from "@/hooks/useBlinkDetector";
 import { decodeMorse, predictWords } from "@/lib/morse";
 import { speak } from "@/lib/speech";
@@ -457,7 +458,7 @@ const Index = () => {
         <div className="flex items-center gap-2 pl-2 tracking-widest text-[#00f0ff] uppercase text-sm mt-1">
           <div className="w-2 h-2 rounded-full bg-[#00f0ff] animate-pulse" />
           <span className="font-bold text-lg">BLINK</span>
-          <a href="/cube" className="ml-2 text-[9px] text-[#7c4dff] border border-[#7c4dff]/30 px-2 py-0.5 rounded hover:bg-[#7c4dff]/10 transition-colors">🧊 3D CUBE</a>
+          <Link to="/cube" className="ml-2 text-[9px] text-[#7c4dff] border border-[#7c4dff]/30 px-2 py-0.5 rounded hover:bg-[#7c4dff]/10 transition-colors">🧊 3D CUBE</Link>
           <span className="ml-auto text-[9px] text-gray-500">AAC v2</span>
         </div>
 
