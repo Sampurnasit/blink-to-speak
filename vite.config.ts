@@ -11,6 +11,13 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    proxy: {
+      "/api/fast2sms": {
+        target: "https://www.fast2sms.com",
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/fast2sms/, "/dev/bulkV2"),
+      },
+    },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {

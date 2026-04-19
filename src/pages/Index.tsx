@@ -25,6 +25,39 @@ const QUICK_WORDS = [
   { label: "Tired", emoji: "😴" },
 ];
 
+const YOUTUBE_LINKS = [
+  { label: "Relaxing Music", q: "relaxing music", emoji: "🎵", videoId: "lFcSrYw-ARY" },
+  { label: "Meditation", q: "meditation", emoji: "🧘", videoId: "inpok4MKVLM" },
+  { label: "Bhajans", q: "bhajans", emoji: "🙏", videoId: "UHkEH1FY7WA" },
+  { label: "Nature Sounds", q: "nature sounds", emoji: "🌿", videoId: "eKFTSSKCzWA" },
+];
+
+const DEFAULT_CONTACTS = [
+  { label: "Mom", phone: "919876543210", emoji: "👩" },
+  { label: "Dad", phone: "919876543211", emoji: "👨" },
+  { label: "Doctor", phone: "919876543212", emoji: "👨‍⚕️" },
+  { label: "Nurse", phone: "919876543213", emoji: "👩‍⚕️" },
+];
+
+function loadContacts() {
+  try {
+    const saved = localStorage.getItem("blinkvoice_contacts");
+    if (saved) return JSON.parse(saved);
+  } catch { /* ignore */ }
+  return DEFAULT_CONTACTS;
+}
+
+function saveContacts(contacts: typeof DEFAULT_CONTACTS) {
+  localStorage.setItem("blinkvoice_contacts", JSON.stringify(contacts));
+}
+
+// Free API instances to try in order for custom video search
+const PIPED_INSTANCES = [
+  "https://pipedapi.kavin.rocks",
+  "https://pipedapi.adminforge.de",
+  "https://api.piped.yt",
+];
+
 function formatTime() {
   const d = new Date();
   const pad = (n: number) => n.toString().padStart(2, "0");
@@ -41,21 +74,27 @@ const Index = () => {
 
   const [debug, setDebug] = useState(false);
   const [logs, setLogs] = useState<{ id: string; time: string; msg: string; kind: string }[]>([]);
+  const [youtubeSearch, setYoutubeSearch] = useState("");
+  const [contacts, setContacts] = useState(loadContacts);
+  const [editingContacts, setEditingContacts] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [sendMode, setSendMode] = useState<"whatsapp" | "sms">(
+    () => (localStorage.getItem("blinkvoice_sendmode") as "whatsapp" | "sms") || "whatsapp"
+  );
 
-  // SOS state
-  const [sosActive, setSosActive] = useState(false);
-  const sosTimerRef = useRef<number | null>(null);
-
-  // AAC Scanning state
-  const [scanMode, setScanMode] = useState(false);
-  const [scanIndex, setScanIndex] = useState(0);
-  const scanIntervalRef = useRef<number | null>(null);
-  const scanModeRef = useRef(false);
-  const scanIndexRef = useRef(0);
-
-  // Keep refs in sync
-  useEffect(() => { scanModeRef.current = scanMode; }, [scanMode]);
-  useEffect(() => { scanIndexRef.current = scanIndex; }, [scanIndex]);
+  const CATEGORIES = useMemo(() => [
+    { id: "quick_words", items: QUICK_WORDS.map(w => ({ ...w, type: "word" })) },
+    {
+      id: "youtube", items: [
+        { type: "youtube_search_text", label: "YT: Typed Text", emoji: "🔍" },
+        ...YOUTUBE_LINKS.map(w => ({ ...w, type: "youtube" }))
+      ]
+    },
+    {
+      id: "messaging", items: contacts.map((c: typeof DEFAULT_CONTACTS[0]) => ({ ...c, type: "message" }))
+    }
+  ], [contacts]);
 
   const addLog = useCallback((msg: string, kind: string) => {
     setLogs(prev => {
@@ -63,6 +102,134 @@ const Index = () => {
       return n.slice(0, 15);
     });
   }, []);
+
+  const handleYouTubeSearch = useCallback(async (query?: string) => {
+    const raw = (query || youtubeSearch || text).trim();
+    if (!raw) return;
+
+    speak(`Playing ${query || "video"}`);
+    addLog(`YOUTUBE: ${raw}`, "red");
+
+    // Check if this matches a preset with a hardcoded videoId
+    const preset = YOUTUBE_LINKS.find(
+      v => v.q.toLowerCase() === raw.toLowerCase() || v.label.toLowerCase() === raw.toLowerCase()
+    );
+    if (preset?.videoId) {
+      addLog(`AUTOPLAY: ${preset.label}`, "green");
+      window.open(
+        `https://www.youtube.com/watch?v=${preset.videoId}&autoplay=1`,
+        "_blank",
+        "noopener,noreferrer"
+      );
+      return;
+    }
+
+    // For custom searches: try free APIs to get first video ID
+    const fallbackUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(raw)}`;
+
+    for (const instance of PIPED_INSTANCES) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch(
+          `${instance}/search?q=${encodeURIComponent(raw)}&filter=videos`,
+          { signal: controller.signal }
+        );
+        clearTimeout(timeout);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const firstVideo = data?.items?.[0];
+        if (firstVideo?.url) {
+          const videoId = firstVideo.url.replace("/watch?v=", "");
+          addLog(`AUTOPLAY: ${videoId}`, "green");
+          window.open(
+            `https://www.youtube.com/watch?v=${videoId}&autoplay=1`,
+            "_blank",
+            "noopener,noreferrer"
+          );
+          return;
+        }
+      } catch {
+        // try next instance
+      }
+    }
+
+    // Final fallback: open YouTube search results page
+    addLog("FALLBACK: Opening search page", "orange");
+    window.open(fallbackUrl, "_blank", "noopener,noreferrer");
+  }, [youtubeSearch, text, addLog]);
+
+  const handleSendMessage = useCallback(async (contact: { label: string; phone: string }) => {
+    const message = text.trim();
+    if (!message) {
+      speak("No message to send");
+      addLog("NO MESSAGE", "red");
+      return;
+    }
+
+    if (sendMode === "sms") {
+      speak(`Sending SMS to ${contact.label}`);
+      addLog(`SMS → ${contact.label}...`, "orange");
+
+      const smsKey = localStorage.getItem("blinkvoice_sms_key") || "";
+      if (!smsKey) {
+        speak("No SMS API key configured");
+        addLog("SMS FAILED: Set Fast2SMS API key in EDIT mode", "red");
+        return;
+      }
+
+      try {
+        // Fast2SMS needs bare 10-digit Indian number (no +, no 91 prefix)
+        let number = contact.phone.replace(/[\s+\-]/g, "");
+        if (number.startsWith("91") && number.length > 10) number = number.slice(2);
+        const params = new URLSearchParams({
+          authorization: smsKey,
+          route: "q",
+          message: `[BlinkVoice] ${message}`,
+          numbers: number,
+        });
+        const res = await fetch(`/api/fast2sms?${params.toString()}`);
+        const data = await res.json();
+        if (data.return === true) {
+          speak("Message sent successfully");
+          addLog(`SMS SENT ✓ ${contact.label}`, "green");
+        } else {
+          speak("SMS failed");
+          addLog(`SMS FAILED: ${JSON.stringify(data.message || data.status_code || data)}`, "red");
+        }
+      } catch (err) {
+        speak("SMS failed");
+        addLog(`SMS ERROR: ${err instanceof Error ? err.message : "Network failure"}`, "red");
+      }
+    } else {
+      // WhatsApp URI scheme
+      const encoded = encodeURIComponent(message);
+      const url = `https://wa.me/${contact.phone}?text=${encoded}`;
+      speak(`Sending to ${contact.label}`);
+      addLog(`WA → ${contact.label}: "${message}"`, "green");
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, [text, addLog, sendMode]);
+
+  // SOS state
+  const [sosActive, setSosActive] = useState(false);
+  const sosTimerRef = useRef<number | null>(null);
+
+  // AAC Scanning state
+  const [scanMode, setScanMode] = useState<"idle" | "category" | "item">("idle");
+  const [scanCategoryIndex, setScanCategoryIndex] = useState(0);
+  const [scanItemIndex, setScanItemIndex] = useState(0);
+  const scanIntervalRef = useRef<number | null>(null);
+  const scanModeRef = useRef<"idle" | "category" | "item">("idle");
+  const scanCategoryRef = useRef(0);
+  const scanItemRef = useRef(0);
+
+  // Keep refs in sync
+  useEffect(() => { scanModeRef.current = scanMode; }, [scanMode]);
+  useEffect(() => { scanCategoryRef.current = scanCategoryIndex; }, [scanCategoryIndex]);
+  useEffect(() => { scanItemRef.current = scanItemIndex; }, [scanItemIndex]);
+
+
 
   // ── SOS ──────────────────────────────────────────────────────────────────
   const triggerEmergency = useCallback(() => {
@@ -108,19 +275,26 @@ const Index = () => {
 
   // ── AAC Scanning ──────────────────────────────────────────────────────────
   const startScan = useCallback(() => {
-    setScanMode(true);
-    setScanIndex(0);
-    addLog("SCANNING — blink to select", "orange");
+    setScanMode("category");
+    setScanCategoryIndex(0);
+    setScanItemIndex(0);
+    addLog("SCANNING CATEGORIES", "orange");
 
     if (scanIntervalRef.current) window.clearInterval(scanIntervalRef.current);
     scanIntervalRef.current = window.setInterval(() => {
-      setScanIndex(prev => (prev + 1) % QUICK_WORDS.length);
+      if (scanModeRef.current === "category") {
+        setScanCategoryIndex(prev => (prev + 1) % CATEGORIES.length);
+      } else if (scanModeRef.current === "item") {
+        const items = CATEGORIES[scanCategoryRef.current].items;
+        setScanItemIndex(prev => (prev + 1) % items.length);
+      }
     }, 1400);
   }, [addLog]);
 
   const stopScan = useCallback(() => {
-    setScanMode(false);
-    setScanIndex(0);
+    setScanMode("idle");
+    setScanCategoryIndex(0);
+    setScanItemIndex(0);
     if (scanIntervalRef.current) {
       window.clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
@@ -141,17 +315,44 @@ const Index = () => {
 
   const handleBlink = useCallback(
     (e: BlinkEvent) => {
-      // Scan mode: any blink selects highlighted word
-      if (scanModeRef.current) {
-        const idx = scanIndexRef.current;
-        const word = QUICK_WORDS[idx]?.label ?? "";
-        if (word) {
-          speak(word);
-          setText(t => (t.trim() ? t.trim() + " " : "") + word + " ");
-          addLog(`SELECTED: ${word}`, "green");
+      // Scan mode: any blink selects
+      if (scanModeRef.current !== "idle") {
+        if (scanModeRef.current === "category") {
+          setScanMode("item");
+          setScanItemIndex(0);
+          const catNames = ["Words", "Youtube", "Messaging"];
+          const catName = catNames[scanCategoryRef.current] || "Unknown";
+          speak(catName);
+          addLog(`CATEGORY: ${catName}`, "green");
+          if (scanIntervalRef.current) window.clearInterval(scanIntervalRef.current);
+          scanIntervalRef.current = window.setInterval(() => {
+            if (scanModeRef.current === "item") {
+              const items = CATEGORIES[scanCategoryRef.current].items;
+              setScanItemIndex(prev => (prev + 1) % items.length);
+            }
+          }, 1400);
+          return;
         }
-        stopScan();
-        return;
+
+        if (scanModeRef.current === "item") {
+          const cat = CATEGORIES[scanCategoryRef.current];
+          const item = cat.items[scanItemRef.current];
+          if (item) {
+            if (item.type === "youtube") {
+              handleYouTubeSearch((item as {q?: string}).q);
+            } else if (item.type === "youtube_search_text") {
+              handleYouTubeSearch();
+            } else if (item.type === "message") {
+              handleSendMessage(item as {label: string; phone: string});
+            } else {
+              speak(item.label);
+              setText(t => (t.trim() ? t.trim() + " " : "") + item.label + " ");
+              addLog(`SELECTED: ${item.label}`, "green");
+            }
+          }
+          stopScan();
+          return;
+        }
       }
 
       // Double blink = backspace
@@ -168,12 +369,16 @@ const Index = () => {
       if (e.type === "long") return addSymbol("-");
       addSymbol(".");
     },
-    [addSymbol, stopScan, addLog]
+    [addSymbol, stopScan, addLog, handleYouTubeSearch, handleSendMessage, CATEGORIES]
   );
 
   // ── Keyboard fallback ────────────────────────────────────────────────────
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
+      // Don't intercept keys when user is typing in an input field
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
       if (e.key === "5") { e.preventDefault(); addSymbol("."); }
       if (e.key === "1") { e.preventDefault(); addSymbol("-"); }
       if (e.key === "Enter") { e.preventDefault(); commitMorse(); }
@@ -439,19 +644,19 @@ const Index = () => {
         </div>
 
         {/* ── QUICK WORDS (AAC scanner) ── */}
-        <div className="flex flex-col gap-2 z-10">
+        <div className={`p-3 -m-3 rounded-xl transition-all duration-300 z-10 flex flex-col gap-2 border-2 ${scanMode === "category" && scanCategoryIndex === 0 ? "bg-[#00f0ff]/10 border-[#00f0ff] shadow-[0_0_30px_rgba(0,240,255,0.4)]" : "border-transparent"}`}>
           <div className="text-[10px] text-gray-500 tracking-widest flex justify-between items-center">
             <span>QUICK WORDS</span>
-            {scanMode && (
+            {scanMode !== "idle" && scanCategoryIndex === 0 && (
               <span className="text-[#d946ef] animate-pulse font-semibold tracking-widest flex items-center gap-1">
                 <span className="w-2 h-2 bg-[#d946ef] rounded-full inline-block" />
-                SCANNING — BLINK TO SELECT
+                {scanMode === "category" ? "CATEGORY FOCUSED" : "SCANNING — BLINK TO SELECT"}
               </span>
             )}
           </div>
           <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
             {QUICK_WORDS.map((w, i) => {
-              const active = scanMode && scanIndex === i;
+              const active = scanMode === "item" && scanCategoryIndex === 0 && scanItemIndex === i;
               return (
                 <button
                   key={w.label}
@@ -469,8 +674,205 @@ const Index = () => {
           </div>
         </div>
 
+        {/* ── YOUTUBE QUICK PLAY ── */}
+        <div className={`p-3 -mx-3 mb-2 rounded-xl transition-all duration-300 z-10 flex flex-col gap-2 pt-4 border-t-2 ${scanMode === "category" && scanCategoryIndex === 1 ? "bg-[#ff0000]/10 border-[#ff0000] shadow-[0_0_30px_rgba(255,0,0,0.4)]" : "border-[#1e293b]"}`}>
+          <div className="text-[10px] text-[#ff0000] font-bold tracking-widest uppercase flex items-center justify-between">
+            <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#ff0000]" />YOUTUBE MEDIA</span>
+            {scanMode !== "idle" && scanCategoryIndex === 1 && (
+              <span className="text-[#ff0000] animate-pulse font-semibold tracking-widest flex items-center gap-1">
+                {scanMode === "category" ? "CATEGORY FOCUSED" : "SCANNING — BLINK TO SELECT"}
+              </span>
+            )}
+          </div>
+
+          <div className="flex gap-2 mb-1">
+            <input
+              type="text"
+              value={youtubeSearch}
+              onChange={(e) => setYoutubeSearch(e.target.value)}
+              placeholder="Search video (music, relaxation, news)..."
+              className="flex-1 bg-[#101524] border border-[#1e293b] rounded-lg px-4 py-3 text-white text-sm focus:outline-none focus:border-[#ff0000]/50 min-h-[50px]"
+            />
+            <button
+              onClick={() => handleYouTubeSearch()}
+              className="bg-[#ff0000] hover:bg-[#ff0000]/80 text-white font-bold px-6 py-3 rounded-lg transition-colors"
+            >
+              SEARCH
+            </button>
+            <button
+              onClick={() => { setYoutubeSearch(text); handleYouTubeSearch(text); }}
+              className="bg-[#1e293b] hover:bg-[#334155] text-white font-bold px-4 py-3 rounded-lg transition-colors border border-[#ff0000]/30 select-none text-xs"
+              title="Use written text as search query"
+            >
+              USE TEXT
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <button
+              onClick={() => handleYouTubeSearch()}
+              className={`flex flex-col items-center justify-center gap-1 min-h-[70px] rounded-xl transition-all duration-150 py-2 border ${scanMode === "item" && scanCategoryIndex === 1 && scanItemIndex === 0
+                  ? "bg-[#ff0000] border-[#ff0000] text-white shadow-[0_0_20px_#ff0000] scale-105"
+                  : "bg-[#101524] border-[#1e293b] hover:bg-[#ff0000]/10 hover:border-[#ff0000]/50 hover:text-white text-gray-400"
+                }`}
+            >
+              <span className="text-2xl">🔍</span>
+              <span className="text-xs font-bold text-center px-1">YT: Typed Text</span>
+            </button>
+            {YOUTUBE_LINKS.map((v, i) => {
+              const active = scanMode === "item" && scanCategoryIndex === 1 && scanItemIndex === i + 1;
+              return (
+                <button
+                  key={v.label}
+                  onClick={() => handleYouTubeSearch(v.q)}
+                  className={`flex flex-col items-center justify-center gap-1 min-h-[70px] rounded-xl transition-all duration-150 py-2 border ${active
+                      ? "bg-[#ff0000] border-[#ff0000] text-white shadow-[0_0_20px_#ff0000] scale-105"
+                      : "bg-[#101524] border-[#1e293b] hover:bg-[#ff0000]/10 hover:border-[#ff0000]/50 hover:text-white text-gray-400"
+                    }`}
+                >
+                  <span className="text-2xl">{v.emoji}</span>
+                  <span className="text-xs font-bold text-center px-1">{v.label}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── SEND MESSAGE ── */}
+        <div className={`p-3 -mx-3 mb-2 rounded-xl transition-all duration-300 z-10 flex flex-col gap-2 pt-4 border-t-2 ${scanMode === "category" && scanCategoryIndex === 2 ? "bg-[#34d399]/10 border-[#34d399] shadow-[0_0_30px_rgba(52,211,153,0.4)]" : "border-[#1e293b]"}`}>
+          <div className="text-[10px] text-[#34d399] font-bold tracking-widest uppercase flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#34d399]" />
+              SEND MESSAGE ({sendMode === "sms" ? "📱 SMS" : "🟢 WhatsApp"})
+            </span>
+            <div className="flex gap-2 items-center">
+              {scanMode !== "idle" && scanCategoryIndex === 2 && (
+                <span className="text-[#34d399] animate-pulse font-semibold tracking-widest flex items-center gap-1">
+                  {scanMode === "category" ? "CATEGORY FOCUSED" : "SCANNING — BLINK TO SELECT"}
+                </span>
+              )}
+              <button
+                onClick={() => {
+                  const next = sendMode === "whatsapp" ? "sms" : "whatsapp";
+                  setSendMode(next);
+                  localStorage.setItem("blinkvoice_sendmode", next);
+                }}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded transition-colors border ${
+                  sendMode === "sms"
+                    ? "text-blue-400 border-blue-400/50 hover:bg-blue-400/10"
+                    : "text-green-400 border-green-400/50 hover:bg-green-400/10"
+                }`}
+              >
+                {sendMode === "sms" ? "Switch to WhatsApp" : "Switch to SMS"}
+              </button>
+              <button
+                onClick={() => setEditingContacts(!editingContacts)}
+                className="text-[10px] text-gray-400 hover:text-[#34d399] border border-[#1e293b] hover:border-[#34d399]/50 px-2 py-0.5 rounded transition-colors"
+              >
+                {editingContacts ? "DONE" : "EDIT"}
+              </button>
+            </div>
+          </div>
+
+          {editingContacts && (
+            <div className="flex gap-2 mb-1">
+              <input
+                type="text"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Name"
+                className="flex-1 bg-[#101524] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#34d399]/50"
+              />
+              <input
+                type="text"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                placeholder="Phone (e.g. 919876543210)"
+                className="flex-1 bg-[#101524] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-[#34d399]/50"
+              />
+              <button
+                onClick={() => {
+                  if (newName.trim() && newPhone.trim()) {
+                    const updated = [...contacts, { label: newName.trim(), phone: newPhone.trim(), emoji: "👤" }];
+                    setContacts(updated);
+                    saveContacts(updated);
+                    setNewName("");
+                    setNewPhone("");
+                  }
+                }}
+                className="bg-[#34d399] hover:bg-[#34d399]/80 text-black font-bold px-4 py-2 rounded-lg transition-colors text-sm"
+              >
+                ADD
+              </button>
+            </div>
+          )}
+
+          {editingContacts && sendMode === "sms" && (
+            <div className="flex flex-col gap-1 mb-1 bg-[#0c1020] border border-[#1e293b] rounded-lg p-3">
+              <div className="flex gap-2 items-center">
+                <span className="text-[10px] text-gray-500 whitespace-nowrap">SMS API Key:</span>
+                <input
+                  type="text"
+                  defaultValue={localStorage.getItem("blinkvoice_sms_key") || ""}
+                  onChange={(e) => localStorage.setItem("blinkvoice_sms_key", e.target.value.trim())}
+                  placeholder="Paste your Fast2SMS API key"
+                  className="flex-1 bg-[#101524] border border-[#1e293b] rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-blue-400/50 font-mono"
+                />
+              </div>
+              <div className="text-[9px] text-gray-600">
+                Get free key at <span className="text-blue-400">fast2sms.com</span> → Sign up → Dev API → Copy key
+              </div>
+            </div>
+          )}
+
+          {text.trim() ? (
+            <div className="text-xs text-gray-400 bg-[#101524] border border-[#1e293b] rounded-lg px-3 py-2 mb-1">
+              📝 Message: <span className="text-white font-semibold">"{text.trim()}"</span>
+              <span className="text-gray-600 ml-2">via {sendMode === "sms" ? "SMS (Fast2SMS)" : "WhatsApp"}</span>
+            </div>
+          ) : (
+            <div className="text-xs text-gray-500 italic mb-1">
+              Type a message first using blinks, then select a contact to send via {sendMode === "sms" ? "SMS" : "WhatsApp"}.
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {contacts.map((c: typeof DEFAULT_CONTACTS[0], i: number) => {
+              const active = scanMode === "item" && scanCategoryIndex === 2 && scanItemIndex === i;
+              return (
+                <button
+                  key={c.label + c.phone}
+                  onClick={() => handleSendMessage(c)}
+                  className={`flex flex-col items-center justify-center gap-1 min-h-[70px] rounded-xl transition-all duration-150 py-2 border relative ${
+                    active
+                      ? "bg-[#34d399] border-[#34d399] text-black shadow-[0_0_20px_#34d399] scale-105"
+                      : "bg-[#101524] border-[#1e293b] hover:bg-[#34d399]/10 hover:border-[#34d399]/50 hover:text-white text-gray-400"
+                  }`}
+                >
+                  <span className="text-2xl">{c.emoji}</span>
+                  <span className="text-xs font-bold">{c.label}</span>
+                  <span className="text-[9px] opacity-60">+{c.phone.slice(0,2)} •••• {c.phone.slice(-4)}</span>
+                  {editingContacts && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const updated = contacts.filter((_: typeof DEFAULT_CONTACTS[0], idx: number) => idx !== i);
+                        setContacts(updated);
+                        saveContacts(updated);
+                      }}
+                      className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center hover:bg-red-400"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* ── MORSE REFERENCE BOARD ── */}
-        <div className="flex flex-col gap-2 z-10 flex-1">
+        <div className="flex flex-col gap-2 z-10 flex-1 pt-4 border-t border-[#1e293b]">
           <div className="text-[10px] text-gray-500 tracking-widest uppercase">MORSE REFERENCE — CLICK TO TYPE</div>
           <div className="grid grid-cols-8 lg:grid-cols-10 gap-x-2 gap-y-2">
             {Object.keys(MORSE_CHART).map(l => {
