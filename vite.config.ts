@@ -11,6 +11,9 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    optimizeDeps: {
+      include: ["@mediapipe/face_mesh", "@mediapipe/camera_utils"],
+    },
     proxy: {
       "/api/fast2sms": {
         target: "https://www.fast2sms.com",
