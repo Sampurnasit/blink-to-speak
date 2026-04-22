@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useBlinkDetector, BlinkEvent } from "@/hooks/useBlinkDetector";
 import { decodeMorse, predictWords } from "@/lib/morse";
 import { speak } from "@/lib/speech";
+import { PdfReader } from "@/components/blinkvoice/PdfReader";
 
 const MORSE_CHART: Record<string, string> = {
   A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....",
@@ -677,6 +678,8 @@ const Index = () => {
             })}
           </div>
         </div>
+
+        <PdfReader />
 
         {/* ── YOUTUBE QUICK PLAY ── */}
         <div className={`p-3 -mx-3 mb-2 rounded-xl transition-all duration-300 z-10 flex flex-col gap-2 pt-4 border-t-2 ${scanMode === "category" && scanCategoryIndex === 1 ? "bg-[#ff0000]/10 border-[#ff0000] shadow-[0_0_30px_rgba(255,0,0,0.4)]" : "border-[#1e293b]"}`}>
